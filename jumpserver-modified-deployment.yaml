@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sshd-jumpserver
+  labels:
+    app: sshd-jumpserver
+spec:
+  selector:
+    matchLabels:
+      app: sshd-jumpserver
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: sshd-jumpserver
+    spec:
+      containers:
+        - name: sshd-jumpserver
+          image: docker.io/panubo/sshd:1.3.0
+          ports:
+            - containerPort: 22
+              protocol: TCP
+          resources: {}
+          env:
+            - name: SSH_USERS
+              value: 'scalelite:1000:1000:/bin/bash'
+            - name: PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sshkey
+                  key: authorizedkeys
+          imagePullPolicy: Always
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - name: sshkey
+              mountPath: "/var/sshd-jumpserver"
+              readOnly: true
+            - name: data
+              mountPath: /var/bigbluebutton
+              readOnly: false
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - cp /var/sshd-jumpserver/authorizedkeys /etc/authorized_keys/scalelite
+      initContainers:
+        - name: take-data-dir-ownership
+          image: alpine:3
+          command:
+            - chown
+            - -R
+            - 1000:1000
+            - /var/bigbluebutton
+          volumeMounts:
+            - name: data
+              mountPath: /var/bigbluebutton
+              readOnly: false
+      volumes:
+        - name: sshkey
+          secret:
+            secretName: sshkey
+        - name: data
+          persistentVolumeClaim:
+            claimName: scalelite-efs-pvc
+      # hostNetwork: true
+      # dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
